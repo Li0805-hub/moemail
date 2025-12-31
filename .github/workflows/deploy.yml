@@ -35,6 +35,13 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Debug deploy script version
+        run: |
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "DESCRIBE=$(git describe --tags --always)"
+          echo "--- scripts/deploy/index.ts (wrangler secret bulk lines) ---"
+          grep -n "wrangler pages secret bulk" scripts/deploy/index.ts || true
+
       - name: Run deploy script
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

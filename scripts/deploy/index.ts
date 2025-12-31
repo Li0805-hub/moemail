@@ -326,6 +326,18 @@ const pushPagesSecret = () => {
     writeFileSync(runtimeEnvFile, runtimeEnvJson);
 
     try {
+      const written = readFileSync(runtimeEnvFile, 'utf-8');
+      JSON.parse(written);
+    } catch (e) {
+      const written = readFileSync(runtimeEnvFile, 'utf-8');
+      const firstNonWhitespace = (written.match(/\S/) ?? [''])[0];
+      const keys = Object.keys(runtimeSecrets).join(', ');
+      throw new Error(
+        `Generated ${runtimeEnvFile} is not valid JSON. size=${written.length}, firstNonWhitespace=${JSON.stringify(firstNonWhitespace)}, keys=[${keys}]`
+      );
+    }
+
+    try {
       execSync(`pnpm dlx wrangler pages secret bulk "${runtimeEnvFile}"`, { stdio: "inherit" });
     } finally {
       if (existsSync(runtimeEnvFile)) {
