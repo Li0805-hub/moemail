@@ -1,7 +1,7 @@
 import { NotFoundError } from "cloudflare";
 import "dotenv/config";
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   createDatabase,
@@ -286,37 +286,52 @@ const pushPagesSecret = () => {
       setupEnvFile();
     }
 
-    // 创建一个临时文件，只包含运行时所需的环境变量
     const envContent = readFileSync(resolve('.env'), 'utf-8');
     const runtimeEnvFile = resolve('.env.runtime');
 
-    // 从.env文件中提取运行时变量
-    const runtimeEnvContent = envContent
-      .split('\n')
-      .filter(line => {
-        const trimmedLine = line.trim();
-        // 跳过注释和空行
-        if (!trimmedLine || trimmedLine.startsWith('#')) return false;
+    const envObject: Record<string, string> = {};
+    for (const rawLine of envContent.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
 
-        // 检查是否为运行时所需的环境变量
-        for (const varName of runtimeEnvVars) {
-          if (line.startsWith(`${varName} =`) || line.startsWith(`${varName}=`)) {
-            const value = line.substring(line.indexOf('=') + 1).trim().replace(/^["']|["']$/g, '');
-            return value.length > 0;
-          }
-        }
-        return false;
-      })
-      .join('\n');
+      const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+      if (!match) continue;
 
-    // 写入临时文件
-    writeFileSync(runtimeEnvFile, runtimeEnvContent);
+      const key = match[1];
+      let value = match[2] ?? '';
 
-    // 使用临时文件推送secrets
-    execSync(`pnpm dlx wrangler pages secret bulk ${runtimeEnvFile}`, { stdio: "inherit" });
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1);
+      } else if (value.startsWith("'") && value.endsWith("'")) {
+        value = value.slice(1, -1);
+      }
 
-    // 清理临时文件
-    execSync(`rm ${runtimeEnvFile}`, { stdio: "inherit" });
+      envObject[key] = value;
+    }
+
+    const runtimeSecrets: Record<string, string> = {};
+    for (const key of runtimeEnvVars) {
+      const value = (envObject[key] ?? '').trim();
+      if (value.length > 0) {
+        runtimeSecrets[key] = value;
+      }
+    }
+
+    if (Object.keys(runtimeSecrets).length === 0) {
+      throw new Error(`No runtime secrets found in .env for: ${runtimeEnvVars.join(', ')}`);
+    }
+
+    const runtimeEnvJson = JSON.stringify(runtimeSecrets, null, 2);
+    JSON.parse(runtimeEnvJson);
+    writeFileSync(runtimeEnvFile, runtimeEnvJson);
+
+    try {
+      execSync(`pnpm dlx wrangler pages secret bulk "${runtimeEnvFile}"`, { stdio: "inherit" });
+    } finally {
+      if (existsSync(runtimeEnvFile)) {
+        unlinkSync(runtimeEnvFile);
+      }
+    }
 
     console.log("✅ Secrets pushed successfully");
   } catch (error) {
