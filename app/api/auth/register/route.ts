@@ -32,6 +32,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ user })
   } catch (error) {
+    console.error("/api/auth/register failed:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "注册失败" },
       { status: 500 }
